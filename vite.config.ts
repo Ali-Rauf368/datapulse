@@ -5,4 +5,22 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: 'charts',
+              test: /recharts/,
+            },
+            {
+              name: 'icons',
+              test: /lucide-react/,
+            },
+          ],
+        },
+      },
+    },
+  },
 })
