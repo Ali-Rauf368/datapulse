@@ -1,4 +1,3 @@
-
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
@@ -78,7 +77,6 @@ app.get('/api/vehicles', async (_req, res) => {
 app.post('/api/vehicles', async (req, res) => {
   const { vin, make, model, model_year, status } = req.body ?? {}
 
-  // Validate required fields
   if (
     typeof vin !== 'string' ||
     typeof make !== 'string' ||
@@ -170,6 +168,16 @@ app.post('/api/vehicles', async (req, res) => {
   }
 })
 
-app.listen(PORT, () => {
-  console.log(`DataPulse API running at http://localhost:${PORT}`)
-})
+// Export the app so tests can exercise endpoints without starting a port.
+export { app }
+
+// Start the server only when this file is executed directly.
+const isMainModule = process.argv[1]
+  ? import.meta.url === new URL(`file://${process.argv[1]}`).href
+  : false
+
+if (isMainModule) {
+  app.listen(PORT, () => {
+    console.log(`DataPulse API running at http://localhost:${PORT}`)
+  })
+}
