@@ -19,6 +19,17 @@ describe('DataPulse API', () => {
     expect(response.body.timestamp).toBeDefined()
   })
 
+  it('confirms the database connection', async () => {
+    const response = await request(app).get('/api/health/db')
+
+    expect(response.status).toBe(200)
+    expect(response.body).toMatchObject({
+      status: 'ok',
+      database: 'datapulse',
+      user: 'datapulse_user',
+    })
+  })
+
   it('rejects a vehicle with an invalid VIN', async () => {
     const response = await request(app)
       .post('/api/vehicles')
