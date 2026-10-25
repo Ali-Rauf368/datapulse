@@ -45,10 +45,7 @@ type Vehicle = {
   created_at: string
 }
 
-type VehiclesResponse = {
-  count: number
-  vehicles: Vehicle[]
-}
+type VehiclesResponse = Vehicle[]
 
 type VehicleStats = {
   total: number
@@ -166,7 +163,13 @@ function App() {
 
       if (signal?.aborted) return
 
-      setVehicles(vehicleData.vehicles)
+      if (!Array.isArray(vehicleData)) {
+        throw new Error(
+          'The vehicle API returned an unexpected response format.',
+        )
+      }
+
+      setVehicles(vehicleData)
       setStats(statsData)
       setLastUpdated(new Date().toLocaleTimeString())
     } catch (error) {
@@ -235,7 +238,9 @@ function App() {
     setFormSuccess(null)
   }
 
-  async function handleSaveVehicle(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSaveVehicle(
+    event: React.FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault()
     setFormError(null)
     setFormSuccess(null)
@@ -246,16 +251,24 @@ function App() {
     const modelYear = Number(vehicleForm.model_year)
 
     if (!/^[A-HJ-NPR-Z0-9]{17}$/.test(vin)) {
-      setFormError('Enter a valid 17-character VIN. Letters I, O and Q are not allowed.')
+      setFormError(
+        'Enter a valid 17-character VIN. Letters I, O and Q are not allowed.',
+      )
       return
     }
 
     if (!make || make.length > 100 || !model || model.length > 100) {
-      setFormError('Make and model must each contain between 1 and 100 characters.')
+      setFormError(
+        'Make and model must each contain between 1 and 100 characters.',
+      )
       return
     }
 
-    if (!Number.isInteger(modelYear) || modelYear < 1886 || modelYear > 2100) {
+    if (
+      !Number.isInteger(modelYear) ||
+      modelYear < 1886 ||
+      modelYear > 2100
+    ) {
       setFormError('Enter a model year between 1886 and 2100.')
       return
     }
@@ -280,15 +293,18 @@ function App() {
         }),
       })
 
-      const data = await readJson<{
-        message: string
-        vehicle: Vehicle
-      }>(response)
+      const savedVehicle = await readJson<Vehicle>(response)
 
-      setFormSuccess(data.message)
+      setFormSuccess(
+        editing
+          ? `${savedVehicle.make} ${savedVehicle.model} updated successfully.`
+          : `${savedVehicle.make} ${savedVehicle.model} created successfully.`,
+      )
+
       setVehicleForm(initialVehicleForm)
       setEditingVehicleId(null)
       setShowVehicleForm(false)
+
       await loadData()
     } catch (error) {
       setFormError(
@@ -315,12 +331,15 @@ function App() {
         method: 'DELETE',
       })
 
-      await readJson<{ message: string }>(response)
+      await readJson<{ message: string; vehicle: Vehicle }>(response)
+
       setFormSuccess(`${vehicle.make} ${vehicle.model} was deleted.`)
       await loadData()
     } catch (error) {
       setActionError(
-        error instanceof Error ? error.message : 'Could not delete the vehicle.',
+        error instanceof Error
+          ? error.message
+          : 'Could not delete the vehicle.',
       )
     } finally {
       setDeletingId(null)
@@ -333,28 +352,24 @@ function App() {
       value: String(stats.total),
       detail: 'Total records in PostgreSQL',
       icon: CarFront,
-      warning: false,
     },
     {
       label: 'Active vehicles',
       value: String(stats.active),
       detail: 'Currently marked active',
       icon: CircleCheck,
-      warning: false,
     },
     {
       label: 'Sold vehicles',
       value: String(stats.sold),
       detail: 'Currently marked sold',
       icon: Euro,
-      warning: false,
     },
     {
       label: 'In service',
       value: String(stats.in_service),
       detail: 'Currently in service',
       icon: Wrench,
-      warning: false,
     },
   ]
 
@@ -367,7 +382,9 @@ function App() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight">DataPulse</h1>
-            <p className="text-xs text-slate-400">Automotive intelligence</p>
+            <p className="text-xs text-slate-400">
+              Automotive intelligence
+            </p>
           </div>
         </div>
 
@@ -395,10 +412,20 @@ function App() {
 
         <div className="mt-12 rounded-xl border border-slate-800 bg-slate-900 p-4">
           <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-            <span className={`h-2 w-2 rounded-full ${
-              apiError ? 'bg-rose-400' : loading ? 'bg-amber-400' : 'bg-emerald-400'
-            }`} />
-            {apiError ? 'API unavailable' : loading ? 'Connecting' : 'Database connected'}
+            <span
+              className={`h-2 w-2 rounded-full ${
+                apiError
+                  ? 'bg-rose-400'
+                  : loading
+                    ? 'bg-amber-400'
+                    : 'bg-emerald-400'
+              }`}
+            />
+            {apiError
+              ? 'API unavailable'
+              : loading
+                ? 'Connecting'
+                : 'Database connected'}
           </div>
           <p className="text-xs leading-5 text-slate-400">
             {apiError
@@ -411,7 +438,9 @@ function App() {
       <main id="overview" className="min-w-0 flex-1 p-5 md:p-8">
         <header className="mb-8 flex items-center justify-between gap-4">
           <div>
-            <p className="mb-1 text-sm text-slate-500">Workspace / Overview</p>
+            <p className="mb-1 text-sm text-slate-500">
+              Workspace / Overview
+            </p>
             <h2 className="text-2xl font-bold tracking-tight md:text-3xl">
               Business overview
             </h2>
@@ -442,9 +471,15 @@ function App() {
           </span>
         </div>
 
-        <section aria-label="Key performance indicators" className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <section
+          aria-label="Key performance indicators"
+          className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        >
           {metrics.map(({ label, value, detail, icon: Icon }) => (
-            <article key={label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
+            <article
+              key={label}
+              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
+            >
               <div className="mb-5 flex items-center justify-between gap-3">
                 <p className="text-sm font-medium text-slate-500">{label}</p>
                 <div className="rounded-xl bg-cyan-50 p-2 text-cyan-700">
@@ -456,22 +491,34 @@ function App() {
               </p>
               <div className="mt-2 flex items-start gap-1.5">
                 {apiError ? (
-                  <AlertTriangle size={15} className="mt-0.5 shrink-0 text-amber-600" />
+                  <AlertTriangle
+                    size={15}
+                    className="mt-0.5 shrink-0 text-amber-600"
+                  />
                 ) : (
-                  <CircleCheck size={15} className="mt-0.5 shrink-0 text-emerald-600" />
+                  <CircleCheck
+                    size={15}
+                    className="mt-0.5 shrink-0 text-emerald-600"
+                  />
                 )}
-                <p className="text-xs leading-5 text-slate-500">{apiError ? 'API unavailable' : detail}</p>
+                <p className="text-xs leading-5 text-slate-500">
+                  {apiError ? 'API unavailable' : detail}
+                </p>
               </div>
             </article>
           ))}
         </section>
 
-        <section id="data-sources" className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <section
+          id="data-sources"
+          className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+        >
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="font-semibold">Vehicle inventory</h3>
               <p className="mt-1 text-sm text-slate-500">
-                Search, filter, create, edit and delete PostgreSQL vehicle records.
+                Search, filter, create, edit and delete PostgreSQL vehicle
+                records.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -488,7 +535,10 @@ function App() {
                 disabled={loading}
                 className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+                <RefreshCw
+                  size={15}
+                  className={loading ? 'animate-spin' : ''}
+                />
                 Refresh
               </button>
             </div>
@@ -496,7 +546,10 @@ function App() {
 
           <div className="mb-5 grid gap-3 sm:grid-cols-[1fr_200px]">
             <div className="relative">
-              <Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search
+                size={17}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+              />
               <input
                 type="search"
                 aria-label="Search vehicles"
@@ -520,11 +573,16 @@ function App() {
           </div>
 
           {showVehicleForm && (
-            <form onSubmit={handleSaveVehicle} className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4 md:p-5">
+            <form
+              onSubmit={handleSaveVehicle}
+              className="mb-6 rounded-xl border border-slate-200 bg-slate-50 p-4 md:p-5"
+            >
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
                   <h4 className="font-semibold">
-                    {editingVehicleId === null ? 'Add a vehicle' : `Edit vehicle #${editingVehicleId}`}
+                    {editingVehicleId === null
+                      ? 'Add a vehicle'
+                      : `Edit vehicle #${editingVehicleId}`}
                   </h4>
                   <p className="mt-1 text-sm text-slate-500">
                     {editingVehicleId === null
@@ -532,31 +590,114 @@ function App() {
                       : 'Update the selected vehicle record.'}
                   </p>
                 </div>
-                <button type="button" onClick={closeForm} aria-label="Close vehicle form" className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-200">
+                <button
+                  type="button"
+                  onClick={closeForm}
+                  aria-label="Close vehicle form"
+                  className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-200"
+                >
                   <X size={18} />
                 </button>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <div>
-                  <label htmlFor="vehicle-vin" className="mb-1.5 block text-sm font-medium text-slate-700">VIN</label>
-                  <input id="vehicle-vin" value={vehicleForm.vin} onChange={(event) => updateVehicleForm('vin', event.target.value)} placeholder="17-character VIN" maxLength={17} required autoComplete="off" className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" />
+                  <label
+                    htmlFor="vehicle-vin"
+                    className="mb-1.5 block text-sm font-medium text-slate-700"
+                  >
+                    VIN
+                  </label>
+                  <input
+                    id="vehicle-vin"
+                    value={vehicleForm.vin}
+                    onChange={(event) =>
+                      updateVehicleForm('vin', event.target.value)
+                    }
+                    placeholder="17-character VIN"
+                    maxLength={17}
+                    required
+                    autoComplete="off"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                  />
                 </div>
                 <div>
-                  <label htmlFor="vehicle-make" className="mb-1.5 block text-sm font-medium text-slate-700">Make</label>
-                  <input id="vehicle-make" value={vehicleForm.make} onChange={(event) => updateVehicleForm('make', event.target.value)} placeholder="e.g. Toyota" maxLength={100} required className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" />
+                  <label
+                    htmlFor="vehicle-make"
+                    className="mb-1.5 block text-sm font-medium text-slate-700"
+                  >
+                    Make
+                  </label>
+                  <input
+                    id="vehicle-make"
+                    value={vehicleForm.make}
+                    onChange={(event) =>
+                      updateVehicleForm('make', event.target.value)
+                    }
+                    placeholder="e.g. Toyota"
+                    maxLength={100}
+                    required
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                  />
                 </div>
                 <div>
-                  <label htmlFor="vehicle-model" className="mb-1.5 block text-sm font-medium text-slate-700">Model</label>
-                  <input id="vehicle-model" value={vehicleForm.model} onChange={(event) => updateVehicleForm('model', event.target.value)} placeholder="e.g. Corolla" maxLength={100} required className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" />
+                  <label
+                    htmlFor="vehicle-model"
+                    className="mb-1.5 block text-sm font-medium text-slate-700"
+                  >
+                    Model
+                  </label>
+                  <input
+                    id="vehicle-model"
+                    value={vehicleForm.model}
+                    onChange={(event) =>
+                      updateVehicleForm('model', event.target.value)
+                    }
+                    placeholder="e.g. Corolla"
+                    maxLength={100}
+                    required
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                  />
                 </div>
                 <div>
-                  <label htmlFor="vehicle-year" className="mb-1.5 block text-sm font-medium text-slate-700">Model year</label>
-                  <input id="vehicle-year" type="number" min={1886} max={2100} step={1} value={vehicleForm.model_year} onChange={(event) => updateVehicleForm('model_year', event.target.value)} required className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" />
+                  <label
+                    htmlFor="vehicle-year"
+                    className="mb-1.5 block text-sm font-medium text-slate-700"
+                  >
+                    Model year
+                  </label>
+                  <input
+                    id="vehicle-year"
+                    type="number"
+                    min={1886}
+                    max={2100}
+                    step={1}
+                    value={vehicleForm.model_year}
+                    onChange={(event) =>
+                      updateVehicleForm('model_year', event.target.value)
+                    }
+                    required
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                  />
                 </div>
                 <div>
-                  <label htmlFor="vehicle-status" className="mb-1.5 block text-sm font-medium text-slate-700">Status</label>
-                  <select id="vehicle-status" value={vehicleForm.status} onChange={(event) => updateVehicleForm('status', event.target.value as VehicleStatus)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100">
+                  <label
+                    htmlFor="vehicle-status"
+                    className="mb-1.5 block text-sm font-medium text-slate-700"
+                  >
+                    Status
+                  </label>
+                  <select
+                    id="vehicle-status"
+                    value={vehicleForm.status}
+                    onChange={(event) =>
+                      updateVehicleForm(
+                        'status',
+                        event.target.value as VehicleStatus,
+                      )
+                    }
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+                  >
                     <option value="active">Active</option>
                     <option value="sold">Sold</option>
                     <option value="in_service">In service</option>
@@ -564,14 +705,35 @@ function App() {
                 </div>
               </div>
 
-              {formError && <p role="alert" className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{formError}</p>}
+              {formError && (
+                <p
+                  role="alert"
+                  className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"
+                >
+                  {formError}
+                </p>
+              )}
 
               <div className="mt-5 flex flex-wrap items-center gap-3">
-                <button type="submit" disabled={submitting} className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60">
-                  {submitting && <RefreshCw size={15} className="animate-spin" />}
-                  {submitting ? 'Saving...' : editingVehicleId === null ? 'Save vehicle' : 'Save changes'}
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {submitting && (
+                    <RefreshCw size={15} className="animate-spin" />
+                  )}
+                  {submitting
+                    ? 'Saving...'
+                    : editingVehicleId === null
+                      ? 'Save vehicle'
+                      : 'Save changes'}
                 </button>
-                <button type="button" onClick={closeForm} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium hover:bg-slate-100">
+                <button
+                  type="button"
+                  onClick={closeForm}
+                  className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium hover:bg-slate-100"
+                >
                   Cancel
                 </button>
               </div>
@@ -579,81 +741,150 @@ function App() {
           )}
 
           {formSuccess && (
-            <p role="status" className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{formSuccess}</p>
+            <p
+              role="status"
+              className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700"
+            >
+              {formSuccess}
+            </p>
           )}
           {actionError && (
-            <p role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{actionError}</p>
+            <p
+              role="alert"
+              className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"
+            >
+              {actionError}
+            </p>
           )}
           {apiError && (
-            <div role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+            <div
+              role="alert"
+              className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"
+            >
               <p>Could not load inventory: {apiError}</p>
-              <p className="mt-1 text-xs">Check that the API and PostgreSQL are running.</p>
+              <p className="mt-1 text-xs">
+                Check that the API and PostgreSQL are running.
+              </p>
             </div>
           )}
 
           {loading && vehicles.length === 0 && !apiError ? (
-            <div role="status" className="flex items-center gap-3 py-12 text-sm text-slate-500">
-              <RefreshCw size={18} className="animate-spin" /> Loading vehicle records...
+            <div
+              role="status"
+              className="flex items-center gap-3 py-12 text-sm text-slate-500"
+            >
+              <RefreshCw size={18} className="animate-spin" />
+              Loading vehicle records...
             </div>
           ) : !apiError && vehicles.length === 0 ? (
             <div className="py-10 text-center">
               <CarFront size={30} className="mx-auto mb-3 text-slate-400" />
               <p className="font-medium">No vehicles found</p>
               <p className="mt-1 text-sm text-slate-500">
-                {search || statusFilter !== 'all' ? 'Try changing your search or filter.' : 'Add a vehicle or ingest one through NiFi.'}
+                {search || statusFilter !== 'all'
+                  ? 'Try changing your search or filter.'
+                  : 'Add a vehicle or ingest one through NiFi.'}
               </p>
             </div>
           ) : vehicles.length > 0 ? (
             <>
               <div className="mb-4 flex flex-wrap items-center gap-3 text-sm text-slate-500">
-                <span>{vehicles.length} result{vehicles.length === 1 ? '' : 's'}</span>
+                <span>
+                  {vehicles.length} result{vehicles.length === 1 ? '' : 's'}
+                </span>
                 <span className="text-slate-300">•</span>
                 <span>{stats.total} total database records</span>
-                {lastUpdated && <>
-                  <span className="text-slate-300">•</span>
-                  <span>Updated at {lastUpdated}</span>
-                </>}
+                {lastUpdated && (
+                  <>
+                    <span className="text-slate-300">•</span>
+                    <span>Updated at {lastUpdated}</span>
+                  </>
+                )}
               </div>
 
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[800px] text-left text-sm">
                   <thead>
                     <tr className="border-y border-slate-100 text-xs uppercase tracking-wide text-slate-500">
-                      <th scope="col" className="py-3 pr-4 font-medium">Vehicle</th>
-                      <th scope="col" className="px-4 py-3 font-medium">Model year</th>
-                      <th scope="col" className="px-4 py-3 font-medium">Status</th>
-                      <th scope="col" className="px-4 py-3 font-medium">Record ID</th>
-                      <th scope="col" className="px-4 py-3 text-right font-medium">Actions</th>
+                      <th scope="col" className="py-3 pr-4 font-medium">
+                        Vehicle
+                      </th>
+                      <th scope="col" className="px-4 py-3 font-medium">
+                        Model year
+                      </th>
+                      <th scope="col" className="px-4 py-3 font-medium">
+                        Status
+                      </th>
+                      <th scope="col" className="px-4 py-3 font-medium">
+                        Record ID
+                      </th>
+                      <th
+                        scope="col"
+                        className="px-4 py-3 text-right font-medium"
+                      >
+                        Actions
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {vehicles.map((vehicle) => (
-                      <tr key={vehicle.id} className="transition-colors hover:bg-slate-50">
+                      <tr
+                        key={vehicle.id}
+                        className="transition-colors hover:bg-slate-50"
+                      >
                         <td className="py-4 pr-4">
                           <div className="flex items-center gap-3">
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-50 text-cyan-700">
                               <CarFront size={20} />
                             </div>
                             <div>
-                              <p className="font-medium text-slate-900">{vehicle.make} {vehicle.model}</p>
-                              <p className="mt-1 text-xs text-slate-500">{vehicle.vin}</p>
+                              <p className="font-medium text-slate-900">
+                                {vehicle.make} {vehicle.model}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {vehicle.vin}
+                              </p>
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-4 text-slate-600">{vehicle.model_year}</td>
+                        <td className="px-4 py-4 text-slate-600">
+                          {vehicle.model_year}
+                        </td>
                         <td className="px-4 py-4">
-                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusStyles[vehicle.status]}`}>
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusStyles[vehicle.status]}`}
+                          >
                             {statusLabels[vehicle.status]}
                           </span>
                         </td>
-                        <td className="px-4 py-4 text-slate-500">#{vehicle.id}</td>
+                        <td className="px-4 py-4 text-slate-500">
+                          #{vehicle.id}
+                        </td>
                         <td className="px-4 py-4">
                           <div className="flex justify-end gap-2">
-                            <button type="button" onClick={() => openEditForm(vehicle)} aria-label={`Edit ${vehicle.make} ${vehicle.model}`} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium hover:bg-slate-100">
+                            <button
+                              type="button"
+                              onClick={() => openEditForm(vehicle)}
+                              aria-label={`Edit ${vehicle.make} ${vehicle.model}`}
+                              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium hover:bg-slate-100"
+                            >
                               Edit
                             </button>
-                            <button type="button" onClick={() => void handleDeleteVehicle(vehicle)} disabled={deletingId === vehicle.id} aria-label={`Delete ${vehicle.make} ${vehicle.model}`} className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50">
-                              {deletingId === vehicle.id ? <RefreshCw size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteVehicle(vehicle)}
+                              disabled={deletingId === vehicle.id}
+                              aria-label={`Delete ${vehicle.make} ${vehicle.model}`}
+                              className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                            >
+                              {deletingId === vehicle.id ? (
+                                <RefreshCw
+                                  size={13}
+                                  className="animate-spin"
+                                />
+                              ) : (
+                                <Trash2 size={13} />
+                              )}
                               Delete
                             </button>
                           </div>
@@ -669,7 +900,9 @@ function App() {
           <div className="mt-5 flex items-start gap-2 border-t border-slate-100 pt-4 text-xs leading-5 text-slate-500">
             <Database size={15} className="mt-0.5 shrink-0" />
             <p>
-              Source: DataPulse REST API backed by PostgreSQL. Vehicle records are synthetic portfolio demo data. Deletion permanently removes a record.
+              Source: DataPulse REST API backed by PostgreSQL. Vehicle records
+              are synthetic portfolio demo data. Deletion permanently removes
+              a record.
             </p>
           </div>
         </section>
@@ -679,68 +912,145 @@ function App() {
             <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h3 className="font-semibold">Sales activity</h3>
-                <p className="mt-1 text-sm text-slate-500">Illustrative daily sales volume</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  Illustrative daily sales volume
+                </p>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <span className="h-2.5 w-2.5 rounded-sm bg-cyan-500" />
                 Vehicles sold
               </div>
             </div>
-            <div role="img" aria-label="Illustrative daily vehicle sales from Monday to Sunday" className="h-64 w-full">
+            <div
+              role="img"
+              aria-label="Illustrative daily vehicle sales from Monday to Sunday"
+              className="h-64 w-full"
+            >
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={salesData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                  <XAxis dataKey="day" tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                  <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: '#64748b' }} allowDecimals={false} />
-                  <Tooltip formatter={(value) => [`${value} vehicles`, 'Sales']} contentStyle={{ borderRadius: '10px', border: '1px solid #e2e8f0', fontSize: '12px' }} />
-                  <Bar dataKey="sales" name="Vehicles sold" fill="#06b6d4" radius={[5, 5, 0, 0]} maxBarSize={42} />
+                <BarChart
+                  data={salesData}
+                  margin={{ top: 10, right: 10, left: -15, bottom: 0 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    vertical={false}
+                    stroke="#e2e8f0"
+                  />
+                  <XAxis
+                    dataKey="day"
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                  />
+                  <YAxis
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fontSize: 12, fill: '#64748b' }}
+                    allowDecimals={false}
+                  />
+                  <Tooltip
+                    formatter={(value) => [`${value} vehicles`, 'Sales']}
+                    contentStyle={{
+                      borderRadius: '10px',
+                      border: '1px solid #e2e8f0',
+                      fontSize: '12px',
+                    }}
+                  />
+                  <Bar
+                    dataKey="sales"
+                    name="Vehicles sold"
+                    fill="#06b6d4"
+                    radius={[5, 5, 0, 0]}
+                    maxBarSize={42}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <p className="mt-4 text-xs text-slate-400">Source: synthetic sample data · Not connected to sales systems</p>
+            <p className="mt-4 text-xs text-slate-400">
+              Source: synthetic sample data · Not connected to sales systems
+            </p>
           </article>
 
-          <article id="processing-runs" className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <article
+            id="processing-runs"
+            className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+          >
             <div className="flex items-center justify-between gap-3">
               <h3 className="font-semibold">System status</h3>
-              <Activity size={18} className="text-slate-400" aria-hidden="true" />
+              <Activity
+                size={18}
+                className="text-slate-400"
+                aria-hidden="true"
+              />
             </div>
-            <p className="mt-1 text-sm text-slate-500">DataPulse API and inventory</p>
+            <p className="mt-1 text-sm text-slate-500">
+              DataPulse API and inventory
+            </p>
 
             <div className="mt-6 space-y-5">
               <div className="flex gap-3">
-                {apiError ? <AlertTriangle size={18} className="shrink-0 text-rose-600" /> : <CircleCheck size={18} className="shrink-0 text-emerald-600" />}
+                {apiError ? (
+                  <AlertTriangle
+                    size={18}
+                    className="shrink-0 text-rose-600"
+                  />
+                ) : (
+                  <CircleCheck
+                    size={18}
+                    className="shrink-0 text-emerald-600"
+                  />
+                )}
                 <div>
                   <p className="text-sm font-medium">API connection</p>
-                  <p className="mt-1 text-xs text-slate-500">{apiError ? 'Connection error' : 'Vehicle API responses received'}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {apiError
+                      ? 'Connection error'
+                      : 'Vehicle API responses received'}
+                  </p>
                 </div>
               </div>
               <div className="flex gap-3">
-                <Database size={18} className="shrink-0 text-cyan-600" />
+                <Database
+                  size={18}
+                  className="shrink-0 text-cyan-600"
+                />
                 <div>
                   <p className="text-sm font-medium">PostgreSQL inventory</p>
-                  <p className="mt-1 text-xs text-slate-500">{stats.total} stored vehicle records</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {stats.total} stored vehicle records
+                  </p>
                 </div>
               </div>
               <div className="flex gap-3">
-                <Clock size={18} className="shrink-0 text-slate-400" />
+                <Clock
+                  size={18}
+                  className="shrink-0 text-slate-400"
+                />
                 <div>
                   <p className="text-sm font-medium">Last refresh</p>
-                  <p className="mt-1 text-xs text-slate-500">{lastUpdated ?? 'Not refreshed yet'}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {lastUpdated ?? 'Not refreshed yet'}
+                  </p>
                 </div>
               </div>
               <div className="flex gap-3">
-                <ShieldCheck size={18} className="shrink-0 text-cyan-600" />
+                <ShieldCheck
+                  size={18}
+                  className="shrink-0 text-cyan-600"
+                />
                 <div>
                   <p className="text-sm font-medium">Input validation</p>
-                  <p className="mt-1 text-xs text-slate-500">API validates VIN, model year, and status.</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    API validates VIN, model year, and status.
+                  </p>
                 </div>
               </div>
             </div>
 
             <div className="mt-6 rounded-lg bg-slate-50 p-3">
               <p className="text-xs leading-5 text-slate-500">
-                Sales analytics remain illustrative. Vehicle inventory and status counts are database-backed.
+                Sales analytics remain illustrative. Vehicle inventory and
+                status counts are database-backed.
               </p>
             </div>
           </article>
@@ -748,7 +1058,13 @@ function App() {
 
         <footer className="mt-8 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
           <span>DataPulse · Automotive data intelligence</span>
-          <span>{apiError ? 'API connection unavailable' : loading ? 'Refreshing data...' : 'PostgreSQL inventory connected'}</span>
+          <span>
+            {apiError
+              ? 'API connection unavailable'
+              : loading
+                ? 'Refreshing data...'
+                : 'PostgreSQL inventory connected'}
+          </span>
         </footer>
       </main>
     </div>
