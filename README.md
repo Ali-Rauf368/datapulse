@@ -557,6 +557,6 @@ Before distributing or accepting external contributions, add an appropriate `LIC
 **Purpose:** Full-stack automotive inventory and analytics portfolio project
 
 For setup, API behavior, database schema, and integration details, the source code and configuration files in this repository remain authoritative.
-EOF
+
 
 
