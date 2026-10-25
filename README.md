@@ -1,7 +1,3 @@
-
-cd ~/projects/datapulse
-
-cat > README.md <<'EOF'
 # DataPulse — Automotive Intelligence Platform
 
 DataPulse is a full-stack automotive inventory and analytics application designed to bring vehicle records, operational visibility, and business intelligence into one authenticated workspace.
