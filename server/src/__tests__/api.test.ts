@@ -1,13 +1,26 @@
-
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { app } from '../index.ts'
 import { pool } from '../db.ts'
+import { createMachineCredential, login } from '../auth/auth.ts'
+import bcrypt from 'bcryptjs'
 
 const makeTestVin = () =>
   `DP${Date.now().toString().padStart(15, '0').slice(-15)}`
 
 const createdVehicleIds = new Set<number>()
+
+const testPassword = 'DataPulse-Test-Password-2026!'
+const testEmails = {
+  admin: `dp-admin-${Date.now()}@example.test`,
+  operator: `dp-operator-${Date.now()}@example.test`,
+  viewer: `dp-viewer-${Date.now()}@example.test`,
+}
+
+let adminToken = ''
+let operatorToken = ''
+let viewerToken = ''
+let machineToken = ''
 
 function trackCreatedVehicle(id: unknown): number {
   const parsedId = Number(id)
@@ -30,22 +43,88 @@ function vehiclePayload(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function asUser(token: string) {
+  return { Authorization: `Bearer ${token}` }
+}
+
+async function createTestUser(
+  email: string,
+  role: 'admin' | 'operator' | 'viewer',
+) {
+  const passwordHash = await bcrypt.hash(testPassword, 4)
+
+  await pool.query(
+    `INSERT INTO app_users (email, password_hash, role, active)
+     VALUES ($1, $2, $3, TRUE)`,
+    [email, passwordHash, role],
+  )
+}
+
+async function createVehicle(
+  token = adminToken,
+  overrides: Record<string, unknown> = {},
+) {
+  const response = await request(app)
+    .post('/api/vehicles')
+    .set(asUser(token))
+    .send(vehiclePayload(overrides))
+
+  if (response.status === 201) {
+    trackCreatedVehicle(response.body.id)
+  }
+
+  return response
+}
+
 describe('DataPulse API', () => {
+  beforeAll(async () => {
+    await createTestUser(testEmails.admin, 'admin')
+    await createTestUser(testEmails.operator, 'operator')
+    await createTestUser(testEmails.viewer, 'viewer')
+
+    const admin = await login(testEmails.admin, testPassword)
+    const operator = await login(testEmails.operator, testPassword)
+    const viewer = await login(testEmails.viewer, testPassword)
+
+    if (!admin || !operator || !viewer) {
+      throw new Error('Could not authenticate test users')
+    }
+
+    adminToken = admin.token
+    operatorToken = operator.token
+    viewerToken = viewer.token
+
+    machineToken = await createMachineCredential(
+      `test-machine-${Date.now()}`,
+      'operator',
+    )
+  })
+
   afterAll(async () => {
     try {
       if (createdVehicleIds.size > 0) {
         await pool.query(
-          'DELETE FROM vehicles WHERE id = ANY($1::int[])',
+          'DELETE FROM vehicles WHERE id = ANY($1::bigint[])',
           [[...createdVehicleIds]],
         )
       }
+
+      await pool.query(
+        'DELETE FROM app_users WHERE email = ANY($1::text[])',
+        [[testEmails.admin, testEmails.operator, testEmails.viewer]],
+      )
+
+      await pool.query(
+        `DELETE FROM api_credentials WHERE name = $1`,
+        [`test-machine-${machineToken ? 'created' : 'not-created'}`],
+      )
     } finally {
       await pool.end()
     }
   })
 
   describe('Health and database', () => {
-    it('returns a healthy API status', async () => {
+    it('returns a healthy API status without authentication', async () => {
       const response = await request(app).get('/api/health')
 
       expect(response.status).toBe(200)
@@ -60,15 +139,19 @@ describe('DataPulse API', () => {
       const response = await request(app).get('/api/health/db')
 
       expect(response.status).toBe(200)
-      expect(response.body).toMatchObject({
-        status: 'ok',
-        database: 'datapulse',
-        user: 'datapulse_user',
-      })
+      expect(response.body.status).toBe('ok')
     })
 
-    it('returns vehicle statistics', async () => {
+    it('requires authentication for vehicle statistics', async () => {
       const response = await request(app).get('/api/vehicles/stats')
+
+      expect(response.status).toBe(401)
+    })
+
+    it('returns vehicle statistics to an authenticated user', async () => {
+      const response = await request(app)
+        .get('/api/vehicles/stats')
+        .set(asUser(adminToken))
 
       expect(response.status).toBe(200)
       expect(response.body).toHaveProperty('total')
@@ -78,9 +161,54 @@ describe('DataPulse API', () => {
     })
   })
 
+  describe('Authentication', () => {
+    it('logs in with valid credentials', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testEmails.admin,
+          password: testPassword,
+        })
+
+      expect(response.status).toBe(200)
+      expect(response.body.token).toBeTruthy()
+      expect(response.body.user).toMatchObject({
+        email: testEmails.admin,
+        role: 'admin',
+      })
+    })
+
+    it('rejects an incorrect password', async () => {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .send({
+          email: testEmails.admin,
+          password: 'incorrect-password',
+        })
+
+      expect(response.status).toBe(401)
+    })
+
+    it('rejects requests without a bearer token', async () => {
+      const response = await request(app).get('/api/vehicles')
+
+      expect(response.status).toBe(401)
+    })
+
+    it('rejects an invalid bearer token', async () => {
+      const response = await request(app)
+        .get('/api/vehicles')
+        .set('Authorization', 'Bearer invalid-token')
+
+      expect(response.status).toBe(401)
+    })
+  })
+
   describe('GET /api/vehicles', () => {
     it('returns a vehicle array', async () => {
-      const response = await request(app).get('/api/vehicles')
+      const response = await request(app)
+        .get('/api/vehicles')
+        .set(asUser(adminToken))
 
       expect(response.status).toBe(200)
       expect(Array.isArray(response.body)).toBe(true)
@@ -89,6 +217,7 @@ describe('DataPulse API', () => {
     it('filters vehicles by status', async () => {
       const response = await request(app)
         .get('/api/vehicles')
+        .set(asUser(adminToken))
         .query({ status: 'active' })
 
       expect(response.status).toBe(200)
@@ -103,6 +232,7 @@ describe('DataPulse API', () => {
     it('rejects an invalid status filter', async () => {
       const response = await request(app)
         .get('/api/vehicles')
+        .set(asUser(adminToken))
         .query({ status: 'invalid_status' })
 
       expect(response.status).toBe(400)
@@ -113,15 +243,12 @@ describe('DataPulse API', () => {
         make: 'DataPulseSearchTest',
       })
 
-      const created = await request(app)
-        .post('/api/vehicles')
-        .send(payload)
-
+      const created = await createVehicle(adminToken, payload)
       expect(created.status).toBe(201)
-      trackCreatedVehicle(created.body.id)
 
       const response = await request(app)
         .get('/api/vehicles')
+        .set(asUser(adminToken))
         .query({ search: 'DataPulseSearchTest' })
 
       expect(response.status).toBe(200)
@@ -131,14 +258,20 @@ describe('DataPulse API', () => {
         ),
       ).toBe(true)
     })
+
+    it('allows a viewer to read vehicles', async () => {
+      const response = await request(app)
+        .get('/api/vehicles')
+        .set(asUser(viewerToken))
+
+      expect(response.status).toBe(200)
+    })
   })
 
   describe('POST /api/vehicles', () => {
-    it('creates a vehicle with valid data', async () => {
+    it('creates a vehicle with valid admin credentials', async () => {
       const payload = vehiclePayload()
-      const response = await request(app)
-        .post('/api/vehicles')
-        .send(payload)
+      const response = await createVehicle(adminToken, payload)
 
       expect(response.status).toBe(201)
       expect(response.body).toMatchObject({
@@ -148,13 +281,33 @@ describe('DataPulse API', () => {
         model_year: payload.model_year,
         status: payload.status,
       })
+    })
 
-      trackCreatedVehicle(response.body.id)
+    it('allows an operator to create a vehicle', async () => {
+      const response = await createVehicle(operatorToken)
+
+      expect(response.status).toBe(201)
+    })
+
+    it('allows a machine credential to create a vehicle', async () => {
+      const response = await createVehicle(machineToken)
+
+      expect(response.status).toBe(201)
+    })
+
+    it('rejects vehicle creation by a viewer', async () => {
+      const response = await request(app)
+        .post('/api/vehicles')
+        .set(asUser(viewerToken))
+        .send(vehiclePayload())
+
+      expect(response.status).toBe(403)
     })
 
     it('rejects an invalid VIN', async () => {
       const response = await request(app)
         .post('/api/vehicles')
+        .set(asUser(adminToken))
         .send(vehiclePayload({ vin: 'INVALID' }))
 
       expect(response.status).toBe(400)
@@ -166,6 +319,7 @@ describe('DataPulse API', () => {
     it('rejects missing required fields', async () => {
       const response = await request(app)
         .post('/api/vehicles')
+        .set(asUser(adminToken))
         .send({
           vin: makeTestVin(),
           make: 'Honda',
@@ -180,6 +334,7 @@ describe('DataPulse API', () => {
     it('rejects a model year below the supported range', async () => {
       const response = await request(app)
         .post('/api/vehicles')
+        .set(asUser(adminToken))
         .send(vehiclePayload({ model_year: 1800 }))
 
       expect(response.status).toBe(400)
@@ -188,6 +343,7 @@ describe('DataPulse API', () => {
     it('rejects a model year above the supported range', async () => {
       const response = await request(app)
         .post('/api/vehicles')
+        .set(asUser(adminToken))
         .send(vehiclePayload({ model_year: 2200 }))
 
       expect(response.status).toBe(400)
@@ -196,6 +352,7 @@ describe('DataPulse API', () => {
     it('rejects an invalid status', async () => {
       const response = await request(app)
         .post('/api/vehicles')
+        .set(asUser(adminToken))
         .send(vehiclePayload({ status: 'unknown' }))
 
       expect(response.status).toBe(400)
@@ -203,16 +360,13 @@ describe('DataPulse API', () => {
 
     it('rejects a duplicate VIN', async () => {
       const payload = vehiclePayload()
-
-      const firstResponse = await request(app)
-        .post('/api/vehicles')
-        .send(payload)
+      const firstResponse = await createVehicle(adminToken, payload)
 
       expect(firstResponse.status).toBe(201)
-      trackCreatedVehicle(firstResponse.body.id)
 
       const duplicateResponse = await request(app)
         .post('/api/vehicles')
+        .set(asUser(adminToken))
         .send(payload)
 
       expect(duplicateResponse.status).toBe(409)
@@ -222,15 +376,14 @@ describe('DataPulse API', () => {
   describe('GET /api/vehicles/:id', () => {
     it('retrieves a vehicle by ID', async () => {
       const payload = vehiclePayload()
-
-      const created = await request(app)
-        .post('/api/vehicles')
-        .send(payload)
+      const created = await createVehicle(adminToken, payload)
 
       expect(created.status).toBe(201)
-      const id = trackCreatedVehicle(created.body.id)
+      const id = Number(created.body.id)
 
-      const response = await request(app).get(`/api/vehicles/${id}`)
+      const response = await request(app)
+        .get(`/api/vehicles/${id}`)
+        .set(asUser(adminToken))
 
       expect(response.status).toBe(200)
       expect({
@@ -245,29 +398,31 @@ describe('DataPulse API', () => {
     })
 
     it('rejects a non-numeric ID', async () => {
-      const response = await request(app).get('/api/vehicles/abc')
+      const response = await request(app)
+        .get('/api/vehicles/abc')
+        .set(asUser(adminToken))
 
       expect(response.status).toBe(400)
     })
 
     it('returns 404 for a missing vehicle', async () => {
-      const response = await request(app).get('/api/vehicles/999999999')
+      const response = await request(app)
+        .get('/api/vehicles/999999999')
+        .set(asUser(adminToken))
 
       expect(response.status).toBe(404)
     })
   })
 
   describe('PATCH /api/vehicles/:id', () => {
-    it('updates a vehicle', async () => {
-      const created = await request(app)
-        .post('/api/vehicles')
-        .send(vehiclePayload())
-
+    it('allows an operator to update a vehicle', async () => {
+      const created = await createVehicle(adminToken)
       expect(created.status).toBe(201)
-      const id = trackCreatedVehicle(created.body.id)
+      const id = Number(created.body.id)
 
       const response = await request(app)
         .patch(`/api/vehicles/${id}`)
+        .set(asUser(operatorToken))
         .send({
           status: 'sold',
           model: 'IntegrationUpdated',
@@ -284,16 +439,25 @@ describe('DataPulse API', () => {
       })
     })
 
-    it('rejects an unsupported update field', async () => {
-      const created = await request(app)
-        .post('/api/vehicles')
-        .send(vehiclePayload())
-
-      expect(created.status).toBe(201)
-      const id = trackCreatedVehicle(created.body.id)
+    it('rejects vehicle updates by a viewer', async () => {
+      const created = await createVehicle(adminToken)
+      const id = Number(created.body.id)
 
       const response = await request(app)
         .patch(`/api/vehicles/${id}`)
+        .set(asUser(viewerToken))
+        .send({ status: 'sold' })
+
+      expect(response.status).toBe(403)
+    })
+
+    it('rejects an unsupported update field', async () => {
+      const created = await createVehicle(adminToken)
+      const id = Number(created.body.id)
+
+      const response = await request(app)
+        .patch(`/api/vehicles/${id}`)
+        .set(asUser(operatorToken))
         .send({ unsupported_field: 'value' })
 
       expect(response.status).toBe(400)
@@ -302,40 +466,156 @@ describe('DataPulse API', () => {
     it('returns 404 when updating a missing vehicle', async () => {
       const response = await request(app)
         .patch('/api/vehicles/999999999')
+        .set(asUser(operatorToken))
         .send({ status: 'sold' })
 
       expect(response.status).toBe(404)
     })
+
+    it('rejects machine credentials for interactive updates', async () => {
+      const created = await createVehicle(adminToken)
+      const id = Number(created.body.id)
+
+      const response = await request(app)
+        .patch(`/api/vehicles/${id}`)
+        .set(asUser(machineToken))
+        .send({ status: 'sold' })
+
+      expect(response.status).toBe(403)
+    })
   })
 
   describe('DELETE /api/vehicles/:id', () => {
-    it('deletes a vehicle', async () => {
-      const created = await request(app)
-        .post('/api/vehicles')
-        .send(vehiclePayload())
-
+    it('allows an admin to delete a vehicle', async () => {
+      const created = await createVehicle(adminToken)
       expect(created.status).toBe(201)
-      const id = trackCreatedVehicle(created.body.id)
+      const id = Number(created.body.id)
 
-      const response = await request(app).delete(`/api/vehicles/${id}`)
+      const response = await request(app)
+        .delete(`/api/vehicles/${id}`)
+        .set(asUser(adminToken))
 
       expect(response.status).toBe(200)
       expect(response.body).toHaveProperty('message')
 
-      const missingResponse = await request(app).get(
-        `/api/vehicles/${id}`,
-      )
+      const missingResponse = await request(app)
+        .get(`/api/vehicles/${id}`)
+        .set(asUser(adminToken))
 
       expect(missingResponse.status).toBe(404)
       createdVehicleIds.delete(id)
     })
 
-    it('returns 404 when deleting a missing vehicle', async () => {
-      const response = await request(app).delete(
-        '/api/vehicles/999999999',
-      )
+    it('rejects vehicle deletion by an operator', async () => {
+      const created = await createVehicle(adminToken)
+      const id = Number(created.body.id)
+
+      const response = await request(app)
+        .delete(`/api/vehicles/${id}`)
+        .set(asUser(operatorToken))
+
+      expect(response.status).toBe(403)
+    })
+
+    it('rejects vehicle deletion by a viewer', async () => {
+      const created = await createVehicle(adminToken)
+      const id = Number(created.body.id)
+
+      const response = await request(app)
+        .delete(`/api/vehicles/${id}`)
+        .set(asUser(viewerToken))
+
+      expect(response.status).toBe(403)
+    })
+
+    it('returns 404 when deleting a missing vehicle as admin', async () => {
+      const response = await request(app)
+        .delete('/api/vehicles/999999999')
+        .set(asUser(adminToken))
 
       expect(response.status).toBe(404)
+    })
+  })
+
+  describe('Analytics', () => {
+    it('requires authentication for sales analytics', async () => {
+      const response = await request(app).get('/api/analytics/sales')
+
+      expect(response.status).toBe(401)
+    })
+
+    it('returns a database-backed sales analytics structure', async () => {
+      const response = await request(app)
+        .get('/api/analytics/sales')
+        .set(asUser(adminToken))
+
+      expect(response.status).toBe(200)
+      expect(response.body).toHaveProperty('totalSales')
+      expect(response.body).toHaveProperty('totalRevenue')
+      expect(response.body).toHaveProperty('daily')
+      expect(Array.isArray(response.body.daily)).toBe(true)
+      expect(response.body).toHaveProperty('hasData')
+    })
+
+    it('returns a database-backed service analytics structure', async () => {
+      const response = await request(app)
+        .get('/api/analytics/service')
+        .set(asUser(adminToken))
+
+      expect(response.status).toBe(200)
+      expect(response.body).toHaveProperty('total')
+      expect(response.body).toHaveProperty('open')
+      expect(response.body).toHaveProperty('in_progress')
+      expect(response.body).toHaveProperty('completed')
+      expect(response.body).toHaveProperty('cancelled')
+      expect(response.body).toHaveProperty('hasData')
+      expect(Array.isArray(response.body.recent)).toBe(true)
+    })
+  })
+
+  describe('NiFi ingestion logging', () => {
+    it('records successful machine ingestion without logging the token', async () => {
+      const credentialName = `test-machine-${Date.now()}`
+      const token = await createMachineCredential(credentialName, 'operator')
+
+      const response = await request(app)
+        .post('/api/vehicles')
+        .set(asUser(token))
+        .send(vehiclePayload())
+
+      expect(response.status).toBe(201)
+
+      const logs = await pool.query(
+        `SELECT outcome, http_status, message
+         FROM nifi_request_logs
+         WHERE flow_name = $1
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [process.env.NIFI_FLOW_NAME || 'vehicle-ingestion'],
+      )
+
+      expect(logs.rows[0]).toMatchObject({
+        outcome: 'success',
+        http_status: 201,
+      })
+      expect(String(logs.rows[0].message || '')).not.toContain(token)
+    })
+
+    it('allows an admin to read NiFi request logs', async () => {
+      const response = await request(app)
+        .get('/api/operations/nifi-logs')
+        .set(asUser(adminToken))
+
+      expect(response.status).toBe(200)
+      expect(Array.isArray(response.body)).toBe(true)
+    })
+
+    it('does not allow an operator to read admin-only NiFi logs', async () => {
+      const response = await request(app)
+        .get('/api/operations/nifi-logs')
+        .set(asUser(operatorToken))
+
+      expect(response.status).toBe(403)
     })
   })
 })
