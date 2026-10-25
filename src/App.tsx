@@ -32,7 +32,7 @@ import {
   YAxis,
 } from 'recharts'
 
-const API_URL = 'http://localhost:3000/api'
+const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/$/, '')
 const TOKEN_KEY = 'datapulse_token'
 const USER_KEY = 'datapulse_user'
 
