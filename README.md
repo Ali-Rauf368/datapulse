@@ -27,7 +27,6 @@ It combines a React dashboard with a Node.js API and PostgreSQL-backed data stor
 - [Known Limitations](#known-limitations)
 - [Future Improvements](#future-improvements)
 - [Contributing](#contributing)
-- [License](#license)
 
 ---
 
@@ -517,7 +516,6 @@ Potential next steps include:
 - Document NiFi process groups and integration testing.
 - Add deployment instructions and health monitoring.
 - Improve audit logging, error reporting, and operational observability.
-- Add screenshots and a short demonstration of the application.
 
 These are potential improvements, not claims that the features already exist.
 
@@ -534,14 +532,6 @@ Contributions and suggestions are welcome.
 5. Submit a pull request describing the change and its verification.
 
 For significant changes, explain the problem being solved and any impact on the API, database schema, or security model.
-
----
-
-## License
-
-No license is asserted by this README.
-
-Before distributing or accepting external contributions, add an appropriate `LICENSE` file if the project owner intends to grant reuse rights. Without an applicable license, users should not assume that they have permission to reuse or redistribute the code.
 
 ---
 
